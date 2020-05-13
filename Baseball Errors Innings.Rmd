@@ -1,0 +1,166 @@
+---
+title: "Errors Per Inning"
+author: "Matthew Sahagun"
+date: "3/26/2020"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(retrosheet)
+```
+
+```{r}
+z = getRetrosheet("play", 2012, "SFN")
+## get the play by play data for SF Giants 2012
+```
+
+```{r}
+ms = z[[4]]$play
+## returns the play data from the 4th game of the season
+```
+
+```{r}
+ms2 = ms[,c(1,2,6)] #only includes inning, top vs bottom (0 vs 1), and play data in matrix
+ms3 = as.data.frame(ms2) #creates a data frame from matrix
+ms3$inning = as.numeric(ms3$inning) #changes inning column from factor to numeric
+ms3$team = as.numeric(as.character(ms3$team)) #changes team column from factor to numeric
+```
+
+```{r}
+error = "E"
+grepl(error, ms2[46,3])
+## returns true if there was an error on this play
+##I can probably delete this code. This was just an example. 
+```
+
+```{r}
+## create two new vectors which I will later add to a new data frame: inning, top of inning vs bottom of inning
+inn = array() ##this creates the inning vector
+TvsB = array() ## This creates the top vs bottom vector
+
+r = max(ms3$inning) ## This tells me the maximum number of innings the game went
+last = nrow(ms3) # This tells me the row number of the last play of each game
+
+s = ms3[last,2]
+#returns 0 if the away team was the last to bat
+#returns 1 if the home team was the last to bat
+
+for(i in 1:r) {
+  if (i == r & s == 0) {
+    inn = c(inn, i) #if the home team does not bat, data does not include that value in the vector inn
+    TvsB = c(TvsB ,"T") #if the home team does not bat, data does not include "B" in the last half inning
+  } else {
+  inn = c(inn, rep(i, 2)) #duplicates inning number twice
+  TvsB = c(TvsB, c("T", "B")) #switches top and bottom
+  }
+}
+
+inn = inn[!is.na(inn)] #removes NA values
+TvsB = TvsB[!is.na(TvsB)]
+```
+
+```{r}
+#Provides a 1 an 0 for both balls in play and errors. I will add these vectors to the ms3 data frame
+n = nrow(ms3)
+err = array()
+type = array()
+for(i in 1:n) {
+  if (grepl("K", ms3[i,3]) #removes strikeouts
+      | grepl("W", ms3[i,3]) #removes walks
+      | grepl("HP", ms3[i,3]) #removes hit by pitch
+      | grepl("NP", ms3[i,3]) #removes no play
+      | grepl("HR", ms3[i,3]) #removes home run
+      | grepl("CS", ms3[i,3]) #removes caught stealing
+      | grepl("BK", ms3[i,3]) #removes balk
+      | grepl("DI", ms3[i,3]) #removes defensive indifference
+      | grepl("PO", ms3[i,3]) #removes pickoff
+      | grepl("OA", ms3[i,3]) #removes other runner advance
+      | grepl("IW", ms3[i,3]) #removes intentional walk
+      | grepl("SB", ms3[i,3]) #removes stolen base
+      ) { 
+    type[i] = 0 #adds 0 to balls in play since these balls were not in play
+    err[i] = 0 #adds 0 to error since no errors were commited
+  } else if (grepl("E", ms3[i,3])) {
+    err[i] = 1 #adds a 1 to array for an error
+    type[i] = 1 #adds a 1 to array for a ball in play
+  } else {
+    type[i] = 1 #adds a 1 to array for a ball in play
+    err[i] = 0 #adds a 0 to array for no error
+  }
+}
+```
+
+```{r}
+ms3$inPlay = type #creates a new column whether ball was in play or not
+ms3$err = err #creates a new column for number of errors
+
+#creates a vector counting the numbers of errors balls and in play for each half-inning
+errs = array()
+plays = array()
+for(i in 1:r) {
+  for(j in 0:1) {
+    if (i == r & j == 1 & s == 0) { #does nothing if the home teams does not bat in the ninth inning
+    } else {
+    row = which(i == ms3$inn & j == ms3$team)
+    plays = c(plays, sum(ms3$inPlay[row]))
+    errs = c(errs, sum(ms3$err[row]))
+    }
+  }
+}
+plays = plays[!is.na(plays)]
+plays
+
+errs = errs[!is.na(errs)]
+errs
+```
+
+```{r}
+#creates a vector counting the number of half innings. I will add this to my new data frame later .
+half_inn = array()
+p = length(inn)
+for (i in 1:p) {
+  half_inn[i] = i
+}
+half_inn
+
+```
+
+```{r}
+#tells me how many half-innings occurs since the last rake. I will later add this to my new data frame. 
+half_inn_rake = array()
+q = length(half_inn)
+for (i in 1:q) {
+  x = floor((i - 1) / 6)
+  half_inn_rake[i] = i - (1 + (x * 6))
+}
+half_inn_rake
+```
+
+```{r}
+#creates a vector errors/play. I will later add this to my new data frame. 
+err_play = array()
+for (i in 1:q) {
+  err_play[i] = errs[i] / plays[i]
+}
+err_play
+```
+
+
+```{r}
+#creates the data frame for errors, balls in play, ratio of errors to balls in play, inning, half inning, half-innings since rake, top vs bottom of the inning
+plays_data = data.frame(inn, TvsB, half_inn, half_inn_rake, plays, errs, err_play)
+plays_data
+
+##This is for one game only. I need to figure out how to aggregate this over a full season, and then do the same for every team. 
+
+##This code works regardless of number of innings and whether or not the home team bats in the last inning. 
+```
+
+
+

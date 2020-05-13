@@ -1,0 +1,104 @@
+---
+title: "Baseball Run MLR"
+author: "Matthew Sahagun"
+date: "4/4/2020"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(Lahman)
+library(dplyr)
+library(tidyr)
+library(faraway)
+```
+
+```{r}
+data("Teams")
+```
+
+```{r}
+year_min = 2013
+year_max = 2018 #this data set only has up to 2018 data
+
+#collects all team data between the specified years
+dat = Teams[between(Teams$yearID, year_min, year_max), ]
+```
+
+save(dat, file = "20132018Lahman.RData")
+I ran the data from 2013-2018. I made a data set called "dat." To load, use the following command:
+load(file = "20132018Lahman.RData")
+
+```{r}
+dat2018 = Teams[between(Teams$yearID, 2018, 2018), ]
+head(dat2018)
+```
+
+
+
+```{r}
+pairs(R ~ H + X2B + X3B + HR + BB + SO + SB + CS + HBP + SF, data = dat2018)
+```
+
+#this creates the scatterplot matric used in the linear model for offense, 2018 data
+```{r}
+jpeg(file="2018off_scat.jpeg")
+pairs(R ~ H + X2B + X3B + HR + BB + SO + SB + CS + HBP + SF, data = dat2018)
+dev.off()
+```
+
+![Alt text](/Users\mjs13\Documents\2018off_scat.jpeg)
+
+```{r}
+jpeg(file="off_scat.jpeg")
+pairs(R ~ H + X2B + X3B + HR + BB + SO + SB + CS + HBP + SF, data = dat)
+dev.off()
+```
+
+![Alt text](/Users\mjs13\Documents\off_scat.jpeg)
+
+```{r}
+lm1 = lm(R ~ H + X2B + X3B + HR + BB + SO + SB + CS + HBP + SF, data = dat)
+summary(lm1)
+
+lm1.1 = step(lm1)
+summary(lm1.1)
+
+round(vif(lm1.1), 2)
+#No strong correlations -- none of the predictor exceed the 5 cut-off
+
+par(mfrow=c(1,2))
+plot(lm1.1, 1:2)
+```
+
+```{r}
+lm2 = lm(RA ~ HA + HRA + BBA + SOA + E + DP, data = dat)
+summary(lm2)
+
+lm3 = step(lm2)
+summary(lm3)
+
+pairs(RA ~ HA + HRA + BBA + SOA + E + DP, data = dat)
+
+round(vif(lm3), 2)
+#No strong correlations -- none of the predictor exceed the 5 cut-off
+
+par(mfrow=c(1,2))
+plot(lm3, 1:2)
+
+
+```
+
+#this creates the scatterplot matric used in the linear model for offense, 2018 data
+```{r}
+jpeg(file="def_scat.jpeg")
+pairs(RA ~ HA + HRA + BBA + SOA + E + DP, data = dat)
+dev.off()
+```
+
+![Alt text](/Users\mjs13\Documents\def_scat.jpeg)

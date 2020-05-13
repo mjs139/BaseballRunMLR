@@ -1,0 +1,574 @@
+---
+title: "Baseball Aggregate Grounders"
+author: "Matthew Sahagun"
+date: "4/3/2020"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(retrosheet)
+```
+
+```{r}
+#This function creates two vectors (inn and TvsB) which will later be added to a data frame. 
+adj_half_inn_length = function(a3) {
+r = max(a3$inning) ## This tells me the maximum number of innings the game went
+  
+last = nrow(a3) # This tells me the row number of the last play of each game
+s = a3[last,2]
+#returns 0 if the away team was the last to bat
+#returns 1 if the home team was the last to bat
+  
+inn = array() ##this creates the inning vector
+TvsB = array() ## This creates the top vs bottom vector
+
+#Provides a 1 an 0 for both balls in play and errors. I will add these vectors to the ms3 data frame
+  
+  for(i in 1:r) {
+  if (i == r & s == 0) {
+    inn = c(inn, i) #if the home team does not bat, data does not include that value in the vector inn
+    TvsB = c(TvsB ,"T") #if the home team does not bat, data does not include "B" in the last half inning
+  } else {
+  inn = c(inn, rep(i, 2)) #duplicates inning number twice
+  TvsB = c(TvsB, c("T", "B")) #switches top and bottom
+  }
+}
+
+inn = inn[!is.na(inn)] #removes NA values
+TvsB = TvsB[!is.na(TvsB)]
+newList = list("inn" = inn, "TvsB" = TvsB, "max_inn" = r, "home_bat_last" = s)
+return(newList)
+}
+```
+
+```{r}
+adj_a3 = function(a3) {
+#Provides a 1 an 0 for both ground ball data. I will add these vectors to the ms3 data frame
+  
+gerr = array()
+ghit = array()
+grounder = array()
+#initializes vectors
+
+err = array()
+type = array()
+#creates a vector counting the numbers of errors balls and in play for each half-inning
+  
+n = nrow(a3)
+for(i in 1:n) {
+  if (grepl("K", a3[i,3]) #removes strikeouts
+      | grepl("W", a3[i,3]) #removes walks
+      | grepl("HP", a3[i,3]) #removes hit by pitch
+      | grepl("NP", a3[i,3]) #removes no play
+      | grepl("HR", a3[i,3]) #removes home run
+      | grepl("CS", a3[i,3]) #removes caught stealing
+      | grepl("BK", a3[i,3]) #removes balk
+      | grepl("DI", a3[i,3]) #removes defensive indifference
+      | grepl("PO", a3[i,3]) #removes pickoff
+      | grepl("OA", a3[i,3]) #removes other runner advance
+      | grepl("IW", a3[i,3]) #removes intentional walk
+      | grepl("SB", a3[i,3]) #removes stolen base
+      ) { 
+    type[i] = 0 #adds 0 to balls in play since these balls were not in play
+    err[i] = 0 #adds 0 to error since no errors were commited
+  } else if (grepl("E", a3[i,3])) {
+    err[i] = 1 #adds a 1 to array for an error
+    type[i] = 1 #adds a 1 to array for a ball in play
+  } else {
+    type[i] = 1 #adds a 1 to array for a ball in play
+    err[i] = 0 #adds a 0 to array for no error
+  }
+  if (grepl("G", a3[i,3])) { #identifies ground balls
+    grounder[i] = 1
+    if (grepl("E", a3[i,3])) { #identifies error
+      gerr[i] = 1
+    } else {
+      gerr[i] = 0
+    }
+    if (grepl("S", a3[i,3])
+        | grepl("D", a3[i,3])
+        | grepl("T", a3[i,3])) {
+      ghit[i] = 1
+    } else {
+          ghit[i] = 0
+        }
+  } else {
+    grounder[i] = 0
+    ghit[i] = 0
+    gerr[i] = 0
+  }
+}
+
+a3$grounder = grounder #creates a new column whether ball was hit on the ground
+a3$gerr = gerr #creates a new column for a ground ball error
+a3$ghit = ghit #creates a new column for a ground ball hit
+a3$inPlay = type #creates a new column whether ball was in play or not
+a3$err = err #creates a new column for number of errors
+
+return(a3)
+}
+```
+
+```{r}
+count_ball_err = function(a3) {
+  gerr = array() #creates vector counting the number of ground ball errors in each half inning
+  ghit = array() #creates a vector counting the number of ground ball hits in each half inning
+  grounder = array() #creates a vector counting the number of grounders in each half inning. 
+  errs = array() #creates vector counting the number of errors in each half inning
+  plays = array() #creates a vector counting the number of plays in each half inning
+  season = array() #creates a vector for which season this was played in
+  home = array() #creates a vector for the home team
+  sky = array() #creates a vector for the sky condition
+  dome = array() #creates a vector if the game was played under a dome
+  start_time = array() #creates a vector stating start time
+  day_night = array() #creates a vector stating whether this is a day or night game
+  half_inn_rake = array() #creates a vector counting the number of half-innings since the infield was raked. 
+  TvsB = array() #creates a vector telling me if it is the top or bottom of inning
+  #inn = array() #creates a vector stating which inning it is
+
+  g_min = min(a3$game_id) #the game value for the first game looked at (most likely 1)
+  g_max = max(a3$game_id) #the game value for the last game looked at (most likely 81)
+  
+  season_min = min(a3$season_id)
+  season_max = max(a3$season_id)
+  
+  tot_half_inn = 0
+  
+  team_min = min(a3$team_id)
+  team_max = max(a3$team_id)
+  
+  for (m in team_min:team_max) {
+    for (k in season_min:season_max) { #for every season
+      for(h in g_min:g_max) { #for every game in that season
+        half_inn = array() #creates a vector counting the number of half innings. I will add this to my new data frame later.
+        game = subset(a3, (game_id == h) & (season_id == k) & (team_id == m)) #only looking at one game in a3, home game #h, season #k, home team #m
+        
+        n = nrow(game) #the number of rows in game h
+        s = game[n, 2] #looks at whether the last row is top of bottom of inning (0 for top, 1 for bottom)
+        r = max(game$inning) #tells me the number of innings the game went
+        if (is.na(r) | is.infinite(r)) {
+        #do nothing. For some reason the game was not played
+        } else {
+          count = 0
+          for(i in 1:r) { #for each inning
+            for(j in 0:1) { #for top and bottom of inning
+              if (i == 9 & j == 1 & s == 0) { #this signals that the home team did not bat in the top of the ninth inning
+                ghit = c(ghit, 0) #adds no hits
+                gerr = c(gerr, 0) #adds no errors
+                grounder = c(grounder, 0) #adds no grounders
+                plays = c(plays, 0) #adds no plays
+                errs = c(errs, 0) #adds no errors
+                count = count + 1
+                half_inn[count] = count
+                } else {
+                row = which(i == game$inning & j == game$team)
+                ghit = c(ghit, sum(game$ghit[row]))
+                gerr = c(gerr, sum(game$gerr[row]))
+                grounder = c(grounder, sum(game$grounder[row]))
+                plays = c(plays, sum(game$inPlay[row]))
+                errs = c(errs, sum(game$err[row]))
+                count = count + 1
+                half_inn[count] = count
+                }
+              tot_half_inn = tot_half_inn + 1
+              #This creates our vectors which describe when and where the game took place
+              season[tot_half_inn] = game[1, "season_id"]
+              home[tot_half_inn] = game[1, "home_team"]
+              sky[tot_half_inn] = game[1, "dome"]
+              if (sky[tot_half_inn] == "dome") {
+                dome[tot_half_inn] = TRUE
+              } else {
+                dome[tot_half_inn] = FALSE
+              }
+              start_time[tot_half_inn] = game[1, "start_time"]
+              day_night[tot_half_inn] = game[1, "day_night"]
+            }
+            }
+            if ((h == g_min) & (k == season_min) & (m == team_min)) {
+              tracker = half_inn #initializes the vector for first game
+            } else {
+              tracker = c(tracker, half_inn)  #tells me how many half-innings there are since the start of the game. I will later add this to my new data frame. 
+            }
+        }
+      }
+    }
+  }
+  
+max_half = length(tracker)
+  
+for (i in 1:max_half) {
+    
+  x = floor((i - 1) / 6)
+  half_inn_rake[i] = i - (1 + (x * 6))
+  
+  if (i == 1) {
+    TvsB[i] = "T" #changes top and bottom of inning
+  } else if ((i %% 2) != 0) {
+    TvsB[i] = "T"
+  } else {
+    TvsB[i] = "B"
+  }
+}
+
+inn = ceiling(tracker / 2)
+  
+grounder = grounder[!is.na(grounder)]
+ghit = ghit[!is.na(ghit)]
+gerr = gerr[!is.na(gerr)]
+plays = plays[!is.na(plays)]
+errs = errs[!is.na(errs)]
+
+newList = list("plays" = plays, "errs" = errs, "gerr" = gerr, "ghit" = ghit, "grounder" = grounder, "tracker" = tracker, "season" = season, "home_teamm" = home, "sky" = sky, "dome" = dome, "start_time" = start_time, "day_night" = day_night, "TvsB" = TvsB, "half_inn_rake" = half_inn_rake, "inn" = inn)
+}
+```
+
+```{r}
+err_play = function(agg_data) {
+   #creates a vector errors/play. I will later add this to my new data frame. 
+  errors_per_play = array()
+  errors_per_grounder = array()
+  errors_hits_per_grounder = array()
+  q = nrow(agg_data)
+  
+  for (i in 1:q) {
+  errors_per_play[i] = agg_data$agg_errs[i] / agg_data$agg_plays[i]
+  
+  errors_per_grounder[i] = agg_data$agg_gerr[i] / agg_data$agg_grounder[i]
+  
+  errors_hits_per_grounder[i] = (agg_data$agg_gerr[i] +   agg_data$agg_ghit[i]) / agg_data$agg_grounder[i]
+}
+newList = list("errors_per_play" = errors_per_play, "errors_per_grounder" = errors_per_grounder, "errors_hits_per_grounder" = errors_hits_per_grounder)
+}
+```
+
+```{r}
+#This function aggregates the data from the plays_data from into one nice concise data frame (18 rows-ish -- more for extra innings) telling the number of errors and plays in each half inning
+agg_plays_data = function(plays_data){
+  tracker = plays_data$tracker
+  max_half = max(tracker)
+  half_inn = array()
+  half_inn_rake = array()
+  agg_plays = array()
+  agg_errs = array()
+  agg_grounder = array()
+  agg_gerr = array()
+  agg_ghit = array()
+  inn = array()
+  TvsB = array()
+  
+  for (i in 1:max_half) {
+    rows = which(i == plays_data$tracker)
+    
+    agg_plays[i] = sum(plays_data$plays[rows])
+    agg_errs[i] = sum(plays_data$errs[rows])
+    agg_grounder[i] = sum(plays_data$grounder[rows])
+    agg_gerr[i] = sum(plays_data$gerr[rows])
+    agg_ghit[i] = sum(plays_data$ghit[rows])
+    half_inn[i] = i 
+    
+    x = floor((i - 1) / 6)
+    half_inn_rake[i] = i - (1 + (x * 6))
+    
+    if (i == 1) {
+      TvsB[i] = "T" #changes top and bottom of inning
+      inn[i] = 1 #changes the inning number
+    } else if ((i %% 2) != 0) {
+      TvsB[i] = "T"
+      inn[i] = inn[i - 1] + 1
+    } else {
+      TvsB[i] = "B"
+      inn[i] = inn[i - 1]
+    }
+  }
+  
+  agg_data = data.frame(inn, TvsB, half_inn, half_inn_rake, 
+                        agg_plays, agg_errs, agg_grounder,
+                        agg_gerr, agg_ghit)
+  return(agg_data)
+}
+```
+
+
+```{r}
+
+teamIDs = c("ANA", "BAL", "BOS", "CHA", "CLE",
+            "DET", "KCA", "MIN", "NYA", "OAK", 
+            "SEA", "TBA", "TEX", "TOR", "ARI", 
+            "ATL", "CHN", "CIN", "COL", "HOU",
+            "LAN", "MIA", "MIL", "NYN", "PHI",
+            "PIT", "SDN", "SFN", "SLN", "WAS")
+team_length = length(teamIDs)
+
+datalist = list()
+counter = 0 #this will count the number of games throughout the entire season
+
+year_min = 2013
+year_max = 2018
+
+for(k in year_min:year_max) {
+  for (j in 1:team_length) {
+    z = getRetrosheet("play", k, teamIDs[j])
+    ## get the play by play data for a team in 2012
+    games = length(z) #returns how many home games were played by that team
+    
+    for (i in 1:games) {
+      counter = counter + 1 #tracks the number of games the double for-loops are looking at
+      
+      a = z[[i]]$play #gets the play data from Retrosheet
+      a2 = as.data.frame(a[,c(1,2,6)]) #creates a data frame with just inning, team, and play data
+      a2$season_id = k
+      a2$game_id = i
+      a2$team_id = j
+      a2$home_team = z[[i]]$info[2,2]
+      a2$dome = z[[i]]$info[21,2]
+      a2$start_time = z[[i]]$info[6,2]
+      a2$day_night = z[[i]]$info[7,2]
+      datalist[[counter]] = a2
+    }
+  }
+}
+a3 = do.call(rbind, datalist)
+a3[c(1, 2)] = lapply(a3[c(1, 2)], function(x) X =  as.numeric(as.character(x))) #changes inning and team columns from factor to numeric
+
+a3 = adj_a3(a3) #adds columns to a3 stating whether ball was in play or error occurred
+
+plays_errs = count_ball_err(a3)
+
+plays = plays_errs$plays #number of plays in each half-inning
+errs = plays_errs$errs #number of errors in each half-inning
+tracker = plays_errs$tracker #returns the number of half innings in each game being examined
+grounder = plays_errs$grounder #number of grounders in each half inning
+gerr = plays_errs$gerr #number of grounder errors in each half-inning
+ghit = plays_errs$ghit #returns the number of ground ball hits in each half inning
+season = plays_errs$season
+home_tm = plays_errs$home_team
+dome = plays_errs$dome
+start_time = plays_errs$start_time
+day_night = plays_errs$day_night
+TvsB = plays_errs$TvsB
+half_inn_rake = plays_errs$half_inn_rake
+inn = plays_errs$inn
+
+plays_data = data.frame(inn, tracker, half_inn_rake, TvsB, plays, errs, grounder, gerr, ghit, season, home_tm, dome, start_time, day_night)
+
+print(head(plays_data))
+
+agg_data = agg_plays_data(plays_data)
+
+per_play = err_play(agg_data)
+err_per_play = per_play$errors_per_play
+errors_per_grounder = per_play$errors_per_grounder
+errors_hits_per_grounder = per_play$errors_hits_per_grounder
+
+agg_data$err_per_play = err_per_play
+agg_data$errors_per_grounder = errors_per_grounder
+agg_data$errors_hits_per_grounder = errors_hits_per_grounder
+
+print(agg_data)
+```
+
+save(agg_data, file = "20132018Grounders.RData")
+I ran the data from 2013-2018. I made a data set called "agg_data." To load, use the following command:
+load(file = "20132018Grounders.RData")
+
+save(plays_data, file = "20132018Plays.RData")
+I ran the data from 2013-2018. I made a data set called "plays_data." To load, use the following command:
+load(file = "20132018Plays.RData")
+
+#Begin data analysis
+```{r}
+
+
+plot(err_per_play ~ half_inn_rake, data = agg_data)
+boxplot(err_per_play ~ half_inn_rake, data = agg_data)
+plot(err_per_play ~ half_inn, data = agg_data, xlim = c(0,18))
+boxplot(err_per_play ~ TvsB, data = agg_data)
+```
+
+```{r}
+#Only normal 0-9 games
+reg_games = agg_data[c(1:18),]
+plot(err_per_play ~ half_inn_rake, data = reg_games)
+lm1 = lm(err_per_play ~ half_inn_rake, data = reg_games)
+abline(lm1)
+summary(lm1)
+
+plot(err_per_play ~ TvsB, data = reg_games)
+lm2 = lm(err_per_play ~ TvsB, data = reg_games)
+abline(lm2)
+summary(lm2)
+
+boxplot(err_per_play ~ half_inn_rake, data = reg_games)
+```
+
+```{r}
+#Only normal 0-8 innings
+eight_games = agg_data[c(1:16),]
+plot(agg_plays ~ TvsB, data = eight_games)
+lm3 = lm(agg_plays ~ TvsB, data = eight_games)
+summary(lm3)
+```
+
+```{r}
+lm4 = lm(err_per_play ~ inn, data = reg_games)
+summary(lm4)
+plot(err_per_play ~ inn, data = reg_games)
+ggplot(reg_games, aes(inn, err_per_play, color = TvsB)) +
+  geom_point(aplha = 0.7)
+```
+
+```{r}
+lm5 = lm(err_per_play ~ inn*half_inn_rake*TvsB, data = reg_games)
+summary(lm5)
+```
+
+
+```{r}
+#adjusting a3 data frame
+rows = which(a3$inPlay == 1)
+a4 = a3[rows,]
+
+plot(err~inning, data = a4)
+```
+
+
+Looking at the plays_data frame
+```{r}
+load(file = "20132018Plays.RData")
+head(plays_data)
+```
+
+
+```{r}
+lmod = lm(gerr ~ inn*tracker*half_inn_rake*TvsB*grounder*dome*day_night, family = binomial, data = plays_data)
+summary(lmod)
+```
+
+```{r}
+lmod2 = lm(gerr ~ inn+tracker+half_inn_rake+TvsB+grounder+dome+day_night, data = plays_data)
+summary(lmod2)
+
+round(vif(lmod2), 2)
+
+lmod3 = lm(gerr ~ inn+half_inn_rake+TvsB+grounder+dome+day_night, data = plays_data)
+summary(lmod3)
+
+round(vif(lmod3), 2)
+#No strong correlations -- none of the predictor exceed the 5 cut-off
+
+lmod4 = step(lmod3) #choosing variables with smallest AIC -- this removed half_inn_rake
+summary(lmod4)
+#This shows 5 variables are significant in affecting infield erros on ground balls. 2 variables increase the number of errors (grounder 0.0527, and inn 0.0017), and 3 variables decrease the number of errors (TvsBT -0.00296, domeTRUE -0.00274, day_nightnight -0.00271)
+```
+
+What happens when I only look at domed stadiums?
+```{r}
+rows = which(plays_data$dome == TRUE)
+dome_plays_data = plays_data[rows,]
+
+lmdome = lm(gerr ~ inn+half_inn_rake+TvsB+grounder+day_night, data = dome_plays_data)
+summary(lmdome)
+#Now, day/night does not become significant, but half_inn_since rake does
+
+round(vif(lmdome), 2)
+#No strong correlations -- none of the predictor exceed the 5 cut-off
+
+lmdome2 = step(lmdome) #choosing variables with smallest AIC -- this removed day_night
+summary(lmdome2)
+#This shows 4 variables are significant in affecting infield erros on ground balls. 2 variables increase the number of errors (grounder 0.0505, and inn 0.0017), and 2 variables decrease the number of errors (TvsBT -0.0097, half_inn_rake -0.0015). The half_inn_rake value makes no sense. Why would it be negative?
+```
+What about dome stadiums with and without artificial turf. The only stadium with turf was Toronto and Tampa (and Baltimore in 2015). 
+```{r}
+rows = which(plays_data$dome == TRUE)
+dome_plays_data = plays_data[rows,]
+
+dome_teams = unique(dome_plays_data$home_tm)
+#returns BAL SEA TBA TOR ARI HOU MIA MIL
+
+art = array() #TRUE if field has artificial turf
+
+n = nrow(dome_plays_data)
+
+for (i in 1:n) {
+  if ((grepl("BAL", dome_plays_data[i,11])) | (grepl("TBA", dome_plays_data[i,11])) | (grepl("TOR", dome_plays_data[i,11]))) {
+    art[i] = TRUE
+  } else {
+    art[i] = FALSE
+  }
+}
+
+dome_plays_data$art = art
+head(dome_plays_data)
+```
+```{r}
+lmart = lm(gerr ~ inn+half_inn_rake+TvsB+grounder+art+day_night, data = dome_plays_data)
+summary(lmart)
+# day_nightnight is not significant
+
+round(vif(lmart), 2)
+#No strong correlations -- none of the predictor exceed the 5 cut-off
+
+lmart2 = step(lmart) #choosing variables with smallest AIC -- this removed day_night
+summary(lmart2)
+#This shows 2 variables are significant in affecting infield erros on ground balls. 3 variables increase the number of errors (grounder 0.0507, artTRUE 0.0054, and inn 0.00166), and 2 variables decrease the number of errors (half_inn_rake -0.0015, and TvsBT -0.00969). This is interesting, half_inn rake is significant, but I don't know why it is negative. 
+```
+
+
+
+What happens when I look at open air stadiums?
+```{r}
+rows = which(plays_data$dome == FALSE)
+open_plays_data = plays_data[rows,]
+
+lmopen = lm(gerr ~ inn+half_inn_rake+TvsB+grounder+day_night, data = open_plays_data)
+summary(lmopen)
+#Now, day/night becomes significant, but half_inn_since rake does not
+
+round(vif(lmopen), 2)
+#No strong correlations -- none of the predictor exceed the 5 cut-off
+
+lmopen2 = step(lmopen) #choosing variables with smallest AIC -- this removed half_inn_rake
+summary(lmopen2)
+#This shows 4 variables are significant in affecting infield erros on ground balls. 2 variables increase the number of errors (grounder 0.0531, and inn 0.0017), and 2 variables decrease the number of errors (TvsBT -0.002, day_nightnight -0.0033). 
+```
+
+What happens when I look at open air stadiums during the day?
+```{r}
+rows = which((plays_data$dome == FALSE) & (plays_data$day_night == "day"))
+openday_plays_data = plays_data[rows,]
+
+lmopenday = lm(gerr ~ inn+half_inn_rake+TvsB+grounder, data = openday_plays_data)
+summary(lmopenday)
+# half_inn_since rake is not significant
+
+round(vif(lmopenday), 2)
+#No strong correlations -- none of the predictor exceed the 5 cut-off
+
+lmopenday2 = step(lmopenday) #choosing variables with smallest AIC -- this removed half_inn_rake
+summary(lmopenday2)
+#This shows 3 variables are significant in affecting infield erros on ground balls. 2 variables increase the number of errors (grounder 0.0533, and inn 0.0014), and 1 variables decrease the number of errors (TvsBT -0.0047). 
+```
+
+What happens when I look at open air stadiums during the night?
+```{r}
+rows = which((plays_data$dome == FALSE) & (plays_data$day_night == "night"))
+opennight_plays_data = plays_data[rows,]
+
+lmopennight = lm(gerr ~ inn+half_inn_rake+TvsB+grounder, data = opennight_plays_data)
+summary(lmopennight)
+# half_inn_since rake is not significant as well as TvsBT
+
+round(vif(lmopennight), 2)
+#No strong correlations -- none of the predictor exceed the 5 cut-off
+
+lmopennight2 = step(lmopennight) #choosing variables with smallest AIC -- this removed half_inn_rake and TvsB
+summary(lmopennight2)
+#This shows 2 variables are significant in affecting infield erros on ground balls. 2 variables increase the number of errors (grounder 0.0529, and inn 0.0019), and no variables decrease the number of errors. This is interesting, because up until now TvsB has been significant.  
+```
+

@@ -1,0 +1,136 @@
+---
+title: "Baseball Grounder Logistic Model"
+author: "Matthew Sahagun"
+date: "4/20/2020"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(retrosheet)
+```
+
+```{r}
+teamIDs = c("ANA", "BAL", "BOS", "CHA", "CLE",
+            "DET", "KCA", "MIN", "NYA", "OAK", 
+            "SEA", "TBA", "TEX", "TOR", "ARI", 
+            "ATL", "CHN", "CIN", "COL", "HOU",
+            "LAN", "MIA", "MIL", "NYN", "PHI",
+            "PIT", "SDN", "SFN", "SLN", "WAS")
+team_length = length(teamIDs)
+
+datalist = list()
+counter = 0 #this will count the number of games throughout the entire season
+
+year_min = 2013
+year_max = 2018
+
+for(k in year_min:year_max) {
+  for (j in 1:team_length) {
+    z = getRetrosheet("play", k, teamIDs[j])
+    ## get the play by play data for a team in 2012
+    games = length(z) #returns how many home games were played by that team
+    
+    for (i in 1:games) {
+      counter = counter + 1 #counts the number of games we are looking at
+      
+      play_data = z[[i]]$play #gets the play data from Retrosheet
+      play_data = as.data.frame(play_data[,c(1,2,5,6)]) #creates a data frame with just inning, team, pitches, and play data
+      
+      play_data$season_id = k
+      play_data$game_id = i
+      play_data$team_id = j
+      play_data$home_team = z[[i]]$info[2,2]
+      play_data$weather = z[[i]]$info[21,2]
+      play_data$dome = ifelse(play_data$weather[i] == "dome" | grepl("TOR", play_data$home_team[i]) | grepl("TBA", play_data$home_team[i]), 1, 0) #returns a 1 for a game plays under a dome
+      play_data$turf = ifelse(play_data$weather[i] == "dome" & (grepl("BAL", play_data$home_team[i]) | grepl("TOR", play_data$home_team[i]) | grepl("TBA", play_data$home_team[i])), 1, 0) #returns a 1 for a game played on astroturf
+      play_data$start_time = z[[i]]$info[6,2]
+      play_data$day_night = z[[i]]$info[7,2]
+      play_data$day = ifelse(play_data$day_night[i] == "day", 1, 0) #returns a 1 if this is a day game
+      
+      datalist[[counter]] = play_data
+    }
+  }
+}
+play_data = do.call(rbind, datalist)
+play_data[c(1, 2)] = lapply(play_data[c(1, 2)], function(x) X =  as.numeric(as.character(x))) #changes inning and team columns from factor to numeric
+
+n = nrow(play_data)
+grounder = array()
+error = array()
+gerror = array()
+hit = array()
+ghit = array()
+half_inn_rake = array()
+
+for (i in 1:n) {
+  hit[i] = ifelse (grepl("S", play_data$play[i]) | grepl("D", play_data$play[i]) | grepl("T", play_data$play[i]), 1, 0) #1 for a hit. 0 for no hit
+  error[i] = ifelse (grepl("E", play_data$play[i]), 1, 0) #1 for an error. 0 for no error
+  grounder[i] = ifelse (grepl("G", play_data$play[i]), 1, 0) #1 for a grounder. 0 for no grounder
+  gerror[i] = ifelse(grepl("E", play_data$play[i]) & grepl("G", play_data$play[i]), 1, 0) #1 for a ground error. 0 for no error
+  ghit[i] = ifelse(hit[i] == 1 & grepl("G", play_data$play[i]), 1, 0) #1 for a ground hit. 0 for no ground hit
+
+  x = floor((play_data$inning[i] - 1) / 6)
+  half_inn_rake[i] = play_data$inning[i] - (1 + (x * 6))
+}
+
+play_data = cbind(half_inn_rake, play_data, grounder, error, gerror, hit, ghit)
+
+```
+
+save(play_data, file = "20132018PlayData.RData")
+I ran the data from 2013-2018. I made a data set called "play_data" To load, use the following command:
+load(file = "20132018PlayData.RData")
+
+#Creating the fram to isolate for ground balls
+```{r}
+rows = which(play_data$grounder == 1)
+grounder_play_data = play_data[rows,]
+head(grounder_play_data)
+```
+
+save(grounder_play_data, file = "20132018GrounderPlayData.RData")
+I ran the data from 2013-2018. I made a data set called "grounder_play_data" To load, use the following command:
+load(file = "20132018GrounderPlayData.RData")
+
+```{r}
+load(file = "20132018GrounderPlayData.RData")
+head(grounder_play_data)
+```
+
+
+
+#Analayizing the grounder data
+```{r}
+glm1 = glm(gerror ~ half_inn_rake + inning + team + game_id + season_id + dome + turf + day, data = grounder_play_data, family = binomial)
+summary(glm1)
+```
+
+#model selection AIC
+```{r}
+glm2 = step(glm1)
+summary(glm2)
+```
+```{r}
+library(car)
+round(vif(glm2), 2)
+#No strong correlations -- none of the predictor exceed the 5 cut-off
+```
+
+Signficant predictors
+inning (0.0291 p-value < 2e-16)
+team 0 away 1 home hitting (0.0525 p-vale = 0.00335)
+game_id (-0.0009 p-value = 0.0193)
+dome 0 no dome 1 dome (-0.05123 p-value = 0.0371)
+day 1 day 0 night (0.0395 p-value 0.03782)
+
+What happens when I only look at domed stadiums? Does the day_night effect go away?
+What happens when I look at open air stadiums?
+What happens when I look at open air stadiums during the day?
+What happens when I look at open air stadiums during the night?
