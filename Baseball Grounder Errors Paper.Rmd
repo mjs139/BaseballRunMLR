@@ -1,0 +1,207 @@
+---
+title: "Factos Affecting Ground Ball Error Rates in MLB 2013-2018"
+author: "Matthew Sahagun"
+date: "4/20/2020"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+*"To err is human: to forgive, divine."*
+Alexander Pope
+
+*"You can observe a lot by watching"*
+Yogi Berra
+
+I've been to a lot of baseball games. In between innings while the jumbotron attempted to prevent those with short-attention spans from becoming bored, I always stared at the field. In particular, the infield. One small joy of going to a game in-person is watching the first baseman toss a grounder to third, the third baseman gobbling it up and then returning the ball to he who threw it. As an aspiring baseball player, before my lack of skills and athleticism got in the way, I studied how the infielders would collect the rolling sphere so that I could emulate it at home. When you are not distracted from this entr'acte, you notice things. Every third inning, I watched the grounds crew rake the infield, ensuring that the players did not play on the waffle-shaped surface that I was accustomed to on my local fields. I wondered, what would happen if this raking were suspended, if the infield grew a slight semblence to those that I played on. Would this affect ground-ball error rates?
+
+This paper aims to find what factors influence the error rate on ground balls and what effect these factors have on the outcome of a game. To accomplish this, I first needed to find the run-value of an error. Then, by determining which predictors significantly affected the error-rate on ground balls, I could assign a run-value to each predictor. From my experience watching baseball, I was particularly interested in how the length of time since the last infield rake influenced the error rate. 
+
+## Data Description
+
+I received Major League Baseball data from 2013-2018 from two main sources: the Sean Lahman Baseball Database and Retrosheets. 
+ 
+The Sean Lahman Baseball Database "contains pitching, hitting, and fielding statistics for Major Leage Baseball from 1871 through 2018." (https://cran.r-project.org/web/packages/Lahman/Lahman.pdf) Created by Sean Lahman, "now a team of researchers... make this the largest and most accurate source for baseball statistics available anywhere". I accessed these data from the R package "Lahman". 
+
+The Lahman data provides summary statistics for each team during the 2013-2018 season. I chose these seasons for ballparks were relatively stable during this time -- only one new ballpark, Truist park in Atlanta, opened. As there are 30 teams in Major Leage Baseball, over these 6 seasons I captured 180 rows of data.
+
+With the Lahman package, I analyzed the defensive side of the game. The response variable was runs allowed. The predictors were hits allowed (HA), homeruns allowed (HRA), walks allowed (BBA), strikouts allowed (SOA), errors (E), and double plays (DP). This left me with 180 rows and 7 columns (Fig. 1)
+
+![Scatter plot matrix of Lahman data](/Users\mjs13\Documents\def_scat.jpeg)
+
+
+Retrosheets contains play-by-play Major League Baseball accounts from as far back as 1871. Founded in 1891, Retrosheets has a close relationship with the Society of American Baseball Research (SABR). (https://www.retrosheet.org/). I accessed these data from the R package "Retrosheet". 
+
+The retrosheet data included information for every play between 2013-2018. This added up to 1,310,063 plays (perhaps I was too ambitious). Because I was focused on ground balls, I filtered these data and found that 359,114 ground balls occurred during this time interval, resulting in 13,117 errors. These ground ball errors encompassed the bulk of my research. 
+
+For the retrosheet data, the response variable was whether an error occured or not (1 or 0 respectively). The potential predictor variables were seven-fold: inning, the number of half-innings since the infield was raked, which team was on defense (0 for home, 1 for away), the number of games that have played on this field this season, the season, whether or not the game took place under a dome (1 or 0 respectively), whether or not the game played on artificial turf (still waiting on the Constitutional amendment outlawing turf... also 1 or 0 respectively), and whether or not the game took place during the day (1 or 0 respectively). 
+
+Looking only at grounders, the Retrosheet data gave me 359,114 rows and 8 columns. 
+
+## Methods and Results
+
+To determine how much of an effect the predictor variables had on ground ball error rates, I first chose to study the relationship between errors and runs. How many runs was an error worth?
+
+To determine this, I ran linear multiple regression model using the Lahman data set from the 2013-2018 seasons with runs allowed as the response variable and hits allowed (HA), homeruns allowed (HRA), walks allowed (BBA), strikouts allowed (SOA), errors (E), and double plays (DP) as the predictor variables. I obtained the following results. 
+
+```{r, echo=FALSE}
+load(file = "20132018Lahman.RData")
+```
+```{r}
+lm2 = lm(RA ~ HA + HRA + BBA + SOA + E + DP, data = dat)
+summary(lm2)
+```
+
+I noticed that not all predictor variables in the model were significant, so I performed variable selection using AIC. 
+
+```{r}
+lm3 = step(lm2)
+summary(lm3)
+```
+
+At the 5% level, the effects from hits allowed, home runs allows, walks allowed, errors, and double plays were all significant. Since my focus was on errors, I interpreted that result. An increase in one error, with the other predictors held fixed, was associated with an increase the number of runs given up by 0.343 runs. For the rest of the paper, this result will prompt me to say that an error is "worth" 0.343 runs. 
+
+I then checked my assumptions. First I saught to see if the predictor variables were correlated. 
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+library(faraway)
+```
+```{r}
+round(vif(lm3), 2)
+```
+I saw no strong correlations as none of the predictors exceeded the Variance Inflation Factor cut-off of 5. 
+
+To check for normality and constant variance, I looked at the following plots. 
+
+```{r, echo=FALSE}
+par(mfrow=c(1,2))
+plot(lm3, 1:2)
+```
+
+As in the plot of the standardized residuals versus fitted values the points were randomly scattered around zero, there appeared to be no discernible trend or nonconstant variance. Hence, the assumptions of linearity and nonconstant variance appeared satisfied. The QQ plot also indicated that distribution of the standardized residuals were approximately normal.  
+
+Next, I wished to study what variables affect the error rate on ground balls. To do so, I ran a multiple logistic regression test using data from each ground ball play from 2013-2018 found with the Retrosheet package. The response variable was whether or not an error occurred. The potential predictor variables were inning, the number of half-innings since the infield was raked, which team was on defense, the number of games that have played on this field this season, the season, whether or not the game took place under a dome, whether or not the game played on artificial turf, and whether or not the game took place during the day. 
+
+```{r, echo=FALSE}
+load(file = "20132018GrounderPlayData.RData")
+```
+```{r}
+glm1 = glm(gerror ~ half_inn_rake + inning 
+           + team + game_id + season_id + dome 
+           + turf + day, data = grounder_play_data, 
+           family = binomial)
+summary(glm1)
+```
+
+I again performed variable selection using AIC. 
+
+```{r}
+glm2 = step(glm1)
+summary(glm2)
+```
+
+From this, I saw five variables that had statistically significant effects at the 5% level on the error rates of ground balls: the inning, fielding team, the game number, whether or not the game was played in a dome, and whether whether the game was played during the day or night. The following variables were associated with increasing the error rate: the inning, the away team fielding, and the game played during the dat rather than at night. The following variables were associated with decreasing the error rate: playing in a dome, the game number. 
+
+The following variables were removed from the model using AIC as they were not significant and failed to reject the null hypothesis: the season, the half-inning since the infield was raked, and whether or not the game took place on artifical turf. 
+
+I then checked my assumptions.
+
+```{r}
+round(vif(glm2), 2)
+```
+I saw no strong correlations as none of the predictors exceeded the Variance Inflation Factor cut-off of 5. 
+
+Next, I wished to connect the two models I made. HOw many runs was one of those factors worth?
+
+I focused on the home vs away fielding team variable. How many runs per game were attributed to the error rate difference between home and away teams? How dis this affect the outcome of a game? To do this, I started by using the predict function in R and chose a random game in the middle of the season (home game #40), at night, without a dome. I chose the last two variables since a majority of games take place at night without a dome. 
+
+```{r, echo = FALSE, include = FALSE}
+#What is the probability difference for home team and away team for each inning of a random game (game #40) not in a dome and at night?
+probs_away = array()
+probs_home = array()
+for (i in 1:9) {
+  new_x = data.frame(inning = i, team = 1, game_id = 40, 
+                     dome = 0, day = 0)
+  probs_away[i] = predict(glm2, newdata = new_x, type = "response")
+  new_x = data.frame(inning = i, team = 0, game_id = 40, 
+                     dome = 0, day = 0)
+  probs_home[i] = predict(glm2, newdata = new_x, type = "response")
+}
+
+prob_difference = probs_home - probs_away
+inn = c(1:9)
+dat = data.frame(inn, probs_home, probs_away,
+                 prob_difference)
+mean_dif = mean(prob_difference)
+```
+```{r, echo = FALSE, warning=FALSE}
+library(knitr)
+library(kableExtra)
+
+dat %>%
+  kable(col.names = c("Inning", 
+                      "Home Grounder Error Probability",
+                "Away Grounder Error Probability", 
+                "Difference in Probabilities")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)
+```
+
+On average, the difference in ground ball error rates between the home and away teams was -0.184%. According to my analysis, a baseball game between 2013-2018 averaged 12.3 grounder/game for each team. Multiplying these two values the home team had 0.0226 less errors on ground balls, per game, than the away team. Using our value from above that each error was worth 0.343 runs, it followed that the home team gained a 0.00775 run per game advantage over the away team based on the difference in ground ball error rates. How much effect did this have on an actual game? 
+
+```{r, echo = FALSE}
+#2013-2018 data from Baseball Reference
+home = sum(11002, 11564, 11007, 10552, 9967, 10187)
+away = sum(10628, 11018, 10737, 10095, 9794, 10068)
+games = sum(2431, 2430, 2428, 2429, 2430, 2431)
+home_runs_game = home / games
+away_runs_game = away / games
+home_away_diff = home_runs_game - away_runs_game
+ground_ball_error_rate_diff_runs_game = 0.00775
+
+dt = data.frame(home_runs_game, away_runs_game,
+                home_away_diff,
+                ground_ball_error_rate_diff_runs_game)
+dt %>%
+  kable(col.names = c("Home Runs/Game", 
+                      "Away Runs/Game",
+                "Runs/Game Difference", 
+                "Runs/Game Difference Based on Home/Away Error Rates")) %>%
+  column_spec(1:4, width = "4cm") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)
+```
+
+Dividing the last two values in the table, 5.8% of the difference in score between the home and away team was due to the difference in ground ball error rates between the home and away team. Although small, over the course of 81 away games, this result adds up. 
+
+## Conclusion
+
+In my search to find what factors affect the error rates on ground balls, I found five statistically significant variables: 
+- the inning 
+- the game number 
+- the fielding team
+- the time of play (day vs night)
+- whether or not the game took place in a dome. 
+The variable that I was expecting to have an effect on error rates -- the number of half-innings since the infield was raked -- proved to be statistically insignificant. 
+
+I chose to examine one variable more closely: the effect of the fielding team on error rates. I found that the home team gained a 0.00775 run per game advantage over the away team based on the difference in ground ball error rates. This accounted for 5.8% of the difference in score between the home and away teams. Over the course of a season, this becomes meaningful. 
+
+Future researchers may wish to delve into the other variables that affect ground ball error rates. I am particularly interested in how these rates differ in a domed environment. In addition, it would be interesting to find more information as to why error rates are greater for the away team vs the home team. Is this due to the variability in how each infield plays? Is this true for outfield error rates?
+
+### References
+
+Since I am doing this project mostly for fun, I will not spend too much time making this section formal. Note that I used the following tools to find information described in the paper:
+
+Lahman R package
+
+Retrosheet R package
+
+Baseball Reference (to double check my work)
+
+### Code appendix
+
+https://github.com/mjs139/BaseballRunMLR
